@@ -330,7 +330,7 @@ class P2PServiceSeeker(automat.Automat):
             return
         if _Debug:
             lg.out(_DebugLevel, 'p2p_service_seeker._node_acked %s is connected' % response.CreatorID)
-        self.automat('service-accepted', response.CreatorID)
+        self.automat('service-accepted', (response, info, ))
 
     def _node_failed(self, response, info):
         if _Debug:
@@ -369,7 +369,7 @@ def on_lookup_result(event, result_defer, *args, **kwargs):
     if _Debug:
         lg.args(_DebugLevel, event=event, args=args, kwargs=kwargs)
     if event == 'node-connected':
-        result_defer.callback(args[0])
+        result_defer.callback(*args, **kwargs)
     else:
         result_defer.errback(Exception(event, args, kwargs))
 

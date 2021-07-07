@@ -64,9 +64,8 @@ try:
 except:
     sys.exit('Error initializing twisted.internet.reactor in keys_synchronizer.py')
 
-#------------------------------------------------------------------------------
-
 from twisted.internet.defer import Deferred
+from twisted.python.failure import Failure
 
 #------------------------------------------------------------------------------
 
@@ -179,8 +178,6 @@ def unregister_stream(queue_id):
 #------------------------------------------------------------------------------
 
 def on_consume_queue_messages(json_messages):
-    # if _Debug:
-    #     lg.args(_DebugLevel, json_messages=json_messages)
     received = 0
     pushed = 0
     if not A():
@@ -1017,11 +1014,11 @@ class MessagePeddler(automat.Automat):
                 self.doProcessMessage(*args, **kwargs)
             elif event == 'rotate':
                 self.doStopAffectedQueues(*args, **kwargs)
+            elif event == 'disconnect':
+                self.doLeaveQueueStopKeeper(*args, **kwargs)
             elif event == 'connect' or event == 'follow':
                 self.doStartKeeperJoinQueue(event, *args, **kwargs)
                 self.doSendAck(event, *args, **kwargs)
-            elif event == 'disconnect':
-                self.doLeaveQueueStopKeeper(*args, **kwargs)
         #---CLOSED---
         elif self.state == 'CLOSED':
             pass
@@ -1066,12 +1063,19 @@ class MessagePeddler(automat.Automat):
         """
         Action method.
         """
-        group_key_info = kwargs['group_key']
-        result_defer = kwargs['result_defer']
-        request_packet = kwargs['request_packet']
-        last_sequence_id = kwargs['last_sequence_id']
-        archive_folder_path = kwargs['archive_folder_path']
-        known_brokers = kwargs['known_brokers']
+        try:
+            queue_id = kwargs['queue_id']
+            consumer_id = kwargs['consumer_id']
+            producer_id = kwargs['producer_id']
+            group_key_info = kwargs['group_key']
+            position = kwargs.get('position', -1)
+            archive_folder_path = kwargs['archive_folder_path']
+            last_sequence_id = kwargs['last_sequence_id']
+            known_brokers = kwargs['known_brokers']
+            request_packet = kwargs['request_packet']
+            result_defer = kwargs['result_defer']
+        except:
+            lg.exc('kwargs: %r' % kwargs)
         if _Debug:
             lg.args(_DebugLevel, request_packet=request_packet)
         if not my_keys.verify_key_info_signature(group_key_info):
@@ -1112,10 +1116,6 @@ class MessagePeddler(automat.Automat):
                 p2p_service.SendFail(request_packet, 'key register failed')
                 result_defer.callback(False)
                 return
-        queue_id = kwargs['queue_id']
-        consumer_id = kwargs['consumer_id']
-        producer_id = kwargs['producer_id']
-        position = kwargs.get('position', -1)
         if id_url.is_cached(group_creator_idurl):
             self._do_verify_queue_keeper(
                 group_creator_idurl, request_packet, queue_id, consumer_id, producer_id,
@@ -1250,38 +1250,39 @@ class MessagePeddler(automat.Automat):
         """
         Action method.
         """
-        customer_idurl = id_url.field(kwargs['customer_idurl'])
-        desired_position = kwargs['desired_position']
-        request_packet = kwargs['request_packet']
-        result_defer = kwargs['result_defer']
-        qk = queue_keeper.existing(customer_idurl)
-        if not qk:
-            if _Debug:
-                lg.dbg(_DebugLevel, 'customer queue not exist: %r' % customer_idurl)
-            p2p_service.SendFail(request_packet, 'customer queue not exist')
-            result_defer.callback(False)
-            return
-        if qk.state not in ['DHT_READ', 'DHT_WRITE', 'CONNECTED', ]:
-            if _Debug:
-                lg.dbg(_DebugLevel, 'customer queue not connected: %r' % qk)
-            p2p_service.SendFail(request_packet, 'customer queue not connected')
-            result_defer.callback(False)
-            return
-        if qk.known_position is not None and desired_position is not None and desired_position >= 0:
-            if qk.known_position == desired_position:
-                if _Debug:
-                    lg.dbg(_DebugLevel, 'customer queue already connected on same position %r, accepting: %r' % (qk.known_position, request_packet, ))
-                p2p_service.SendAck(request_packet, 'accepted')
-                result_defer.callback(True)
-                return
-            if _Debug:
-                lg.dbg(_DebugLevel, 'customer queue already connected on different position %r, rejecting: %r' % (qk.known_position, request_packet, ))
-            p2p_service.SendFail(request_packet, 'customer queue already connected on different position')
-            result_defer.callback(False)
-            return
-        lg.warn('customer queue is connected, but position is yet unknown: %r' % qk)
-        p2p_service.SendFail(request_packet, 'customer queue already connected but position is yet unknown')
-        result_defer.callback(False)
+        return
+#         customer_idurl = global_id.GetGlobalQueueOwnerIDURL(kwargs['queue_id'])
+#         desired_position = kwargs['desired_position']
+#         request_packet = kwargs['request_packet']
+#         result_defer = kwargs['result_defer']
+#         qk = queue_keeper.existing(customer_idurl)
+#         if not qk:
+#             if _Debug:
+#                 lg.dbg(_DebugLevel, 'customer queue not exist: %r' % customer_idurl)
+#             p2p_service.SendFail(request_packet, 'customer queue not exist')
+#             result_defer.callback(False)
+#             return
+#         if qk.state not in ['DHT_READ', 'DHT_WRITE', 'CONNECTED', ]:
+#             if _Debug:
+#                 lg.dbg(_DebugLevel, 'customer queue not connected: %r' % qk)
+#             p2p_service.SendFail(request_packet, 'customer queue not connected')
+#             result_defer.callback(False)
+#             return
+#         if qk.known_position is not None and desired_position is not None and desired_position >= 0:
+#             if qk.known_position == desired_position:
+#                 if _Debug:
+#                     lg.dbg(_DebugLevel, 'customer queue already connected on same position %r, accepting: %r' % (qk.known_position, request_packet, ))
+#                 p2p_service.SendAck(request_packet, 'accepted')
+#                 result_defer.callback(True)
+#                 return
+#             if _Debug:
+#                 lg.dbg(_DebugLevel, 'customer queue already connected on different position %r, rejecting: %r' % (qk.known_position, request_packet, ))
+#             p2p_service.SendFail(request_packet, 'customer queue already connected on different position')
+#             result_defer.callback(False)
+#             return
+#         lg.warn('customer queue is connected, but position is yet unknown: %r' % qk)
+#         p2p_service.SendFail(request_packet, 'customer queue already connected but position is yet unknown')
+#         result_defer.callback(False)
 
     def doDestroyMe(self, *args, **kwargs):
         """
@@ -1460,18 +1461,16 @@ class MessagePeddler(automat.Automat):
 #                         lg.info('about to rotate message broker, my position is %d, requested position is %d' % (qk.known_position, position, ))
 #                     else:
 #                         lg.info('connecting to existing %r on same position %d' % (qk, position, ))
-        self._do_connect_queue_keeper(customer_idurl, request_packet, queue_id, consumer_id, producer_id,
-                                      position, last_sequence_id, archive_folder_path, known_brokers, group_key_info, result_defer)
-
-    def _do_connect_queue_keeper(self, customer_idurl, request_packet, queue_id, consumer_id, producer_id,
-                                 position, last_sequence_id, archive_folder_path, known_brokers, group_key_info, result_defer):
-        if _Debug:
-            lg.args(_DebugLevel, customer_idurl=customer_idurl, queue_id=queue_id, position=position)
+#         self._do_connect_queue_keeper(customer_idurl, request_packet, queue_id, consumer_id, producer_id,
+#                                       position, last_sequence_id, archive_folder_path, known_brokers, group_key_info, result_defer)
+#     def _do_connect_queue_keeper(self, customer_idurl, request_packet, queue_id, consumer_id, producer_id,
+#                                  position, last_sequence_id, archive_folder_path, known_brokers, group_key_info, result_defer):
+#         if _Debug:
+#             lg.args(_DebugLevel, customer_idurl=customer_idurl, queue_id=queue_id, position=position)
         queue_keeper_result = Deferred()
         if _Debug:
-            queue_keeper_result.addErrback(lg.errback, debug=_Debug, debug_level=_DebugLevel, method='message_peddler._do_connect_queue_keeper')
-        qk = queue_keeper.check_create(customer_idurl=customer_idurl, auto_create=True)
-        queue_keeper_result.addCallback(
+            queue_keeper_result.addErrback(lg.errback, debug=_Debug, debug_level=_DebugLevel, method='message_peddler._do_verify_queue_keeper')
+        queue_keeper_result.addBoth(
             self._on_queue_keeper_connect_result,
             queue_id=queue_id,
             consumer_id=consumer_id,
@@ -1480,15 +1479,19 @@ class MessagePeddler(automat.Automat):
             request_packet=request_packet,
             result_defer=result_defer,
         )
+        qk = queue_keeper.check_create(customer_idurl=customer_idurl, auto_create=True)
         qk.automat(
             event='connect',
             queue_id=queue_id,
+            consumer_id=consumer_id,
+            producer_id=producer_id,
+            group_key_info=group_key_info,
             desired_position=position,
             archive_folder_path=archive_folder_path,
+            last_sequence_id=last_sequence_id,
             known_brokers=known_brokers,
-            group_key_info=group_key_info,
-            result_callback=queue_keeper_result,
             use_dht_cache=False,
+            result_callback=queue_keeper_result,
         )
 
     def _do_replicate_message(self, message_in, known_brokers={}):
@@ -1598,11 +1601,12 @@ class MessagePeddler(automat.Automat):
         if _Debug:
             lg.args(_DebugLevel, result=result, queue_id=queue_id, consumer_id=consumer_id, producer_id=producer_id,
                     last_sequence_id=last_sequence_id, request_packet=request_packet)
-        if not result:
+        if not result or isinstance(result, Failure):
             lg.err('queue keeper failed to connect to %r' % queue_id)
             p2p_service.SendFail(request_packet, 'failed to connect to the queue')
             result_defer.callback(False)
             return None
+        cooperated_brokers_txt = jsn.dumps(result)
         if queue_id not in streams():
             open_stream(queue_id)
         if not is_stream_active(queue_id):
@@ -1618,7 +1622,7 @@ class MessagePeddler(automat.Automat):
             lg.info('based on request from connected group member going to update last_sequence_id: %d -> %d' % (
                 cur_sequence_id, last_sequence_id, ))
             set_latest_sequence_id(queue_id, last_sequence_id)
-        p2p_service.SendAck(request_packet, 'accepted')
+        p2p_service.SendAck(request_packet, 'accepted:%s' % cooperated_brokers_txt)
         result_defer.callback(True)
         return None
 
