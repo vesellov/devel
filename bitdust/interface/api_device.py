@@ -34,7 +34,7 @@ from __future__ import absolute_import
 
 #------------------------------------------------------------------------------
 
-_Debug = False
+_Debug = True
 _DebugLevel = 10
 
 #------------------------------------------------------------------------------
@@ -129,6 +129,8 @@ def init():
 
 
 def shutdown():
+    if _Debug:
+        lg.out(_DebugLevel, 'api_device.shutdown')
     stop_devices()
 
 
@@ -311,16 +313,21 @@ def disable_device(device_name):
 #------------------------------------------------------------------------------
 
 
-def start_device(device_name, listening_callback=None):
+def start_device(device_name, listening_callback=None, client_code_input_callback=None):
     global _Instances
     validate_device_name(device_name)
-    if device_name in _Instances:
-        raise Exception('device %r was already started' % device_name)
     device_key_object = devices(device_name)
     if not device_key_object:
         raise Exception('device %r does not exist' % device_name)
     if not device_key_object.active:
         raise Exception('device %r is not active' % device_name)
+    inst = instances(device_name)
+    if inst:
+        if inst.state == 'CLOSED':
+            _Instances.pop(device_name)
+            del inst
+        else:
+            raise Exception('device %r was already started' % device_name)
     if device_key_object.meta['routed']:
         if not driver.is_on('service_web_socket_communicator'):
             raise Exception('required service_web_socket_communicator() is not currently ON')
@@ -330,7 +337,12 @@ def start_device(device_name, listening_callback=None):
     if _Debug:
         lg.args(_DebugLevel, device_name=device_name, instance=inst)
     _Instances[device_name] = inst
-    inst.automat('start', device_object=device_key_object, listening_callback=listening_callback)
+    inst.automat(
+        'start',
+        device_object=device_key_object,
+        listening_callback=listening_callback,
+        client_code_input_callback=client_code_input_callback,
+    )
     return inst
 
 
@@ -340,10 +352,10 @@ def stop_device(device_name):
     if device_name not in _Instances:
         raise Exception('device %r was not started' % device_name)
     inst = _Instances[device_name]
-    inst.automat('shutdown')
-    _Instances.pop(device_name)
     if _Debug:
         lg.args(_DebugLevel, device_name=device_name, instance=inst)
+    inst.automat('stop')
+    _Instances.pop(device_name)
     del inst
     return True
 
@@ -388,6 +400,25 @@ def stop_devices():
         if not device_key_object.active:
             continue
         stop_device(device_name)
+
+
+#------------------------------------------------------------------------------
+
+
+def reset_authorization(device_name):
+    if _Debug:
+        lg.args(_DebugLevel, device_name=device_name)
+    validate_device_name(device_name)
+    device_key_object = devices(device_name)
+    if not device_key_object:
+        raise Exception('device %r does not exist' % device_name)
+    if instances(device_name):
+        stop_device(device_name)
+    device_key_object.meta['auth_token'] = None
+    device_key_object.meta['session_key'] = None
+    if not device_key_object.save():
+        return False
+    return True
 
 
 #------------------------------------------------------------------------------
@@ -523,6 +554,14 @@ def on_model_changed(snapshot_object):
             'type': 'model',
             'payload': snapshot_object.to_json(),
         })
+
+
+def on_device_client_code_input_received(device_name, client_code):
+    validate_device_name(device_name)
+    inst = instances(device_name)
+    if not inst:
+        raise Exception('device %r was not started' % device_name)
+    inst.on_client_code_input_received(client_code)
 
 
 #------------------------------------------------------------------------------

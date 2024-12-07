@@ -48,7 +48,7 @@ from __future__ import absolute_import
 
 #------------------------------------------------------------------------------
 
-_Debug = False
+_Debug = True
 _DebugLevel = 16
 
 _PacketLogFileEnabled = False
@@ -335,10 +335,12 @@ def handle(newpacket, info):
 
 
 class PacketIn(automat.Automat):
+
     """
     This class implements all the functionality of the ``packet_in()`` state
     machine.
     """
+
     def __init__(self, transfer_id):
         self.transfer_id = transfer_id
         self.time = None

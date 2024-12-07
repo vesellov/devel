@@ -50,7 +50,7 @@ from __future__ import absolute_import
 
 #------------------------------------------------------------------------------
 
-_Debug = False
+_Debug = True
 _DebugLevel = 10
 
 #------------------------------------------------------------------------------
@@ -411,6 +411,7 @@ class RoutedWebSocket(automat.Automat):
         self.connected_routers = {}
         self.active_router_url = None
         self.handshaked_routers = []
+        self.server_code = None
 
     def state_changed(self, oldstate, newstate, event, *args, **kwargs):
         """
@@ -426,8 +427,9 @@ class RoutedWebSocket(automat.Automat):
     def to_json(self, short=True):
         ret = super().to_json(short=short)
         ret.update({
-            'active_router': self.active_router_url,
+            'url': self.active_router_url,
             'connected_routers': self.handshaked_routers,
+            'server_code': self.server_code,
         })
         return ret
 
@@ -505,6 +507,11 @@ class RoutedWebSocket(automat.Automat):
             lg.args(_DebugLevel, received_server_code=received_server_code)
         self.automat('valid-server-code-received')
 
+    def on_client_code_input_received(self, client_code):
+        if _Debug:
+            lg.args(_DebugLevel, client_code=client_code)
+        self.automat('client-code-input-received', client_code=client_code)
+
     #------------------------------------------------------------------------------
 
     def A(self, event, *args, **kwargs):
@@ -565,26 +572,6 @@ class RoutedWebSocket(automat.Automat):
                 self.state = 'CLOSED'
                 self.doDisconnectRouters(event, *args, **kwargs)
                 self.doDestroyMe(*args, **kwargs)
-        #---CLIENT_CODE?---
-        elif self.state == 'CLIENT_CODE?':
-            if event == 'client-code-input-received':
-                self.state = 'READY'
-                self.doSaveAuthInfo(*args, **kwargs)
-                self.doSendClientCode(*args, **kwargs)
-            elif event == 'client-pub-key-received':
-                self.state = 'SERVER_CODE?'
-                self.doSaveClientPublicKey(*args, **kwargs)
-                self.doGenerateAuthToken(*args, **kwargs)
-                self.doGenerateServerCode(*args, **kwargs)
-                self.doSendServerPubKey(*args, **kwargs)
-            elif event == 'auth-error' or event == 'stop':
-                self.state = 'CLOSED'
-                self.doRemoveAuthToken(event, *args, **kwargs)
-                self.doDisconnectRouters(event, *args, **kwargs)
-                self.doDestroyMe(*args, **kwargs)
-            elif event == 'router-disconnected':
-                self.state = 'ROUTERS?'
-                self.doLookupRequestRouters(*args, **kwargs)
         #---CLIENT_PUB?---
         elif self.state == 'CLIENT_PUB?':
             if event == 'client-pub-key-received':
@@ -616,6 +603,26 @@ class RoutedWebSocket(automat.Automat):
                 self.doGenerateAuthToken(*args, **kwargs)
                 self.doGenerateServerCode(*args, **kwargs)
                 self.doSendServerPubKey(*args, **kwargs)
+            elif event == 'router-disconnected':
+                self.state = 'ROUTERS?'
+                self.doLookupRequestRouters(*args, **kwargs)
+        #---CLIENT_CODE?---
+        elif self.state == 'CLIENT_CODE?':
+            if event == 'client-code-input-received':
+                self.state = 'READY'
+                self.doSaveAuthInfo(*args, **kwargs)
+                self.doSendClientCode(*args, **kwargs)
+            elif event == 'client-pub-key-received':
+                self.state = 'SERVER_CODE?'
+                self.doSaveClientPublicKey(*args, **kwargs)
+                self.doGenerateAuthToken(*args, **kwargs)
+                self.doGenerateServerCode(*args, **kwargs)
+                self.doSendServerPubKey(*args, **kwargs)
+            elif event == 'auth-error' or event == 'stop':
+                self.state = 'CLOSED'
+                self.doRemoveAuthToken(event, *args, **kwargs)
+                self.doDisconnectRouters(event, *args, **kwargs)
+                self.doDestroyMe(*args, **kwargs)
             elif event == 'router-disconnected':
                 self.state = 'ROUTERS?'
                 self.doLookupRequestRouters(*args, **kwargs)
@@ -653,6 +660,7 @@ class RoutedWebSocket(automat.Automat):
         self.session_key = None
         self.client_key_object = None
         self.listening_callback = kwargs.get('listening_callback')
+        self.client_code_input_callback = kwargs.get('client_code_input_callback')
 
     def doLookupRequestRouters(self, *args, **kwargs):
         """
@@ -672,6 +680,8 @@ class RoutedWebSocket(automat.Automat):
         self.connecting_routers = []
         self.handshaked_routers = []
         self.active_router_url = None
+        if _Debug:
+            lg.args(_DebugLevel, connected_routers=self.connected_routers)
         for url, route_id in self.connected_routers.items():
             if not route_id:
                 continue
@@ -687,6 +697,8 @@ class RoutedWebSocket(automat.Automat):
         Action method.
         """
         # TODO: notify about failed result
+        if _Debug:
+            lg.args(_DebugLevel, connected_routers=self.connected_routers)
         for url, route_id in self.connected_routers.items():
             if not route_id:
                 continue
@@ -694,9 +706,6 @@ class RoutedWebSocket(automat.Automat):
             stop_client(url=route_url)
         self.handshaked_routers = []
         self.active_router_url = None
-        if event == 'auth-error':
-            # TODO: erase stored authorization
-            pass
         if event == 'lookup-failed':
             if self.listening_callback:
                 reactor.callLater(0, self.listening_callback, False)  # @UndefinedVariable
@@ -791,13 +800,12 @@ class RoutedWebSocket(automat.Automat):
         """
         BITDUST_WEB_SOCKET_CLIENT_CODE_INPUT = os.environ.get('BITDUST_WEB_SOCKET_CLIENT_CODE_INPUT', None)
         if BITDUST_WEB_SOCKET_CLIENT_CODE_INPUT:
-            client_code = BITDUST_WEB_SOCKET_CLIENT_CODE_INPUT.strip()
-        else:
-            # TODO: call a callback here to request user input
-            client_code = input().strip()
-        if _Debug:
-            lg.args(_DebugLevel, client_code=client_code)
-        self.automat('client-code-input-received', client_code=client_code)
+            self.on_client_code_input_received(BITDUST_WEB_SOCKET_CLIENT_CODE_INPUT.strip())
+            return
+        if self.client_code_input_callback:
+            self.client_code_input_callback(self.on_client_code_input_received, self.device_name)
+            return
+        lg.warn('client code input callback was not defined')
 
     def doGenerateAuthToken(self, *args, **kwargs):
         """
@@ -810,10 +818,11 @@ class RoutedWebSocket(automat.Automat):
         """
         Action method.
         """
-        self.device_key_object.meta['auth_token'] = None
-        self.device_key_object.meta['session_key'] = None
-        self.device_key_object.meta['client_public_key'] = None
-        self.device_key_object.save()
+        if event == 'auth-error':
+            self.device_key_object.meta['auth_token'] = None
+            self.device_key_object.meta['session_key'] = None
+            self.device_key_object.meta['client_public_key'] = None
+            self.device_key_object.save()
 
     def doProcess(self, *args, **kwargs):
         """
