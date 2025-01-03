@@ -26,14 +26,16 @@ from __future__ import absolute_import
 
 #------------------------------------------------------------------------------
 
-_Debug = False
-_DebugLevel = 8
+_Debug = True
+_DebugLevel = 14
 
 #------------------------------------------------------------------------------
 
 import os
 
 #------------------------------------------------------------------------------
+
+from bitdust.logs import lg
 
 from bitdust.lib import strng
 
@@ -47,10 +49,13 @@ def data_read(file_path, offset, max_size, to_text=True):
     f.seek(offset=offset)
     bin_data = f.read(size=max_size)
     f.close()
+    if _Debug:
+        lg.args(_DebugLevel, sz=len(bin_data), file_path=file_path, offset=offset, max_size=max_size)
     if not to_text:
         return bin_data
     return strng.to_text(bin_data)
 
 
-def data_write(file_path):
+def data_write(data, file_path=None):
+
     return
