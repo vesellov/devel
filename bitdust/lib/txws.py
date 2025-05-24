@@ -55,7 +55,7 @@ from twisted.protocols.policies import ProtocolWrapper, WrappingFactory
 from twisted.python import log
 from twisted.web.http import datetimeToString
 
-_Debug = False
+_Debug = True
 
 array_tostring = lambda x: x.tostring()
 if sys.version_info[1] >= 2:
@@ -529,6 +529,17 @@ class WebSocketProtocol(ProtocolWrapper):
 
                 # Close the connection.
                 self.close(reason)
+            elif opcode == PING:
+                # Also reply on PING packets
+                if self.flavor in (HYBI07, HYBI10, RFC6455):
+                    if not self.do_binary_frames:
+                        maker = make_hybi07_frame
+                        if self.codec:
+                            data = encoders[self.codec](data)
+                        packet = maker(data, opcode=0xa)
+                        self.writeEncoded(packet)
+                        if _Debug:
+                            print('received PING, sent PONG')
 
     def sendFrames(self):
         """
