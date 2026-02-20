@@ -1,6 +1,16 @@
 Change Log
 ==========
 
+2026-02-20 Veselin Penev [penev.veselin@gmail.com](mailto:penev.veselin@gmail.com)
+
+* removed one seed node (#226)
+* various code fixes about IDURL, shared_access_coordinator() and other
+* added api.blockchain_wallet_transactions()
+* bug fix in bismuth_wallet.py
+* bug fix in shared_access_coordinator()
+
+
+
 2025-08-24 Veselin Penev [penev.veselin@gmail.com](mailto:penev.veselin@gmail.com)
 
 * small updates in docs
